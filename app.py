@@ -32,8 +32,8 @@ def send_tg(method, params):
     try:
         with urllib.request.urlopen(urllib.request.Request(url, data), timeout=10) as r:
             return json.loads(r.read())
-    except:
-        return None
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -42,7 +42,12 @@ def webhook():
     if not msg or not msg.get("text"):
         return "OK"
     chat_id = msg["chat"]["id"]
+    chat_title = msg["chat"].get("title", "no title")
     chat_name = CHATS.get(chat_id)
+    
+    debug_text = f"🔍 DEBUG\nchat_id: {chat_id}\ntitle: {chat_title}\nknown: {chat_name or 'NO'}\ntext: {msg.get('text','')[:100]}"
+    send_tg("sendMessage", {"chat_id": ADMIN_CHAT_ID, "text": debug_text})
+    
     if not chat_name:
         return "OK"
     if msg.get("from", {}).get("is_bot"):
@@ -66,4 +71,3 @@ def index():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
-    
