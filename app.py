@@ -53,4 +53,16 @@ def webhook():
     sender = (msg.get("from", {}).get("first_name", "") + " " +
               msg.get("from", {}).get("last_name", "")).strip() or "Неизвестно"
     note = (f"🔔 <b>Новый вопрос — TeamTravel</b>\n"
-            f"📌
+            f"📌 <b>{chat_name}</b>\n"
+            f"👤 {sender}\n"
+            f"💬 {text[:300]}\n\n"
+            f"⏰ Требуется ответ")
+    send_tg("sendMessage", {"chat_id": ADMIN_CHAT_ID, "text": note, "parse_mode": "HTML"})
+    return "OK"
+
+@app.route("/")
+def index():
+    return "TeamTravel Monitor OK"
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
