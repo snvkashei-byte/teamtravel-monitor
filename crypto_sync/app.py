@@ -128,14 +128,14 @@ def sync_balances(sh):
 
 
 def sync_orders(sh):
-    header = ["Дата", "Пара", "Сторона", "Кол-во", "Цена", "Сумма (USDT)", "Статус", "Order ID"]
-    ws = get_or_create_worksheet(sh, "Bybit Ордера", len(header) + 2)
-    existing = ws.get_all_values()
-    if not existing:
-        ws.update("A1", [header], value_input_option="USER_ENTERED")
-        existing_ids = set()
-    else:
-        existing_ids = {row[7] for row in existing[1:] if len(row) > 7}
+header = ["Дата", "Пара", "Сторона", "Кол-во", "Цена", "Сумма (USDT)", "Статус", "Order ID"]
+        first_cell = ws.acell("A1").value
+        if first_cell != header[0]:
+            ws.update("A1", [header], value_input_option="USER_ENTERED")
+            existing_ids = set()
+        else:
+            existing = ws.get_all_values()
+            existing_ids = {row[7] for row in existing[1:] if len(row) > 7}
 
     orders = get_recent_orders("spot", 50)
     new_rows = []
