@@ -16,7 +16,7 @@ from google.oauth2.service_account import Credentials
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("crypto-sync")
 
-BASE_URL = "https://api.bybit.com"
+BASE_URL = "https://api.bytick.com"
 API_KEY = os.environ.get("BYBIT_API_KEY", "")
 API_SECRET = os.environ.get("BYBIT_API_SECRET", "")
 SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "1tca0CIl2takJTUNwTIAR74fXbF1B-zBcZ74I5-8aCgo")
