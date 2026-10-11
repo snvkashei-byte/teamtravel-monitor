@@ -86,6 +86,23 @@ def get_recent_orders(category="spot", limit=50):
     return result.get("list", [])
 
 
+PRICE_SYMBOLS = ["BTC", "SOL", "ATOM", "ETH", "ARB", "GRAM"]
+
+
+def get_public_prices():
+    """Публичные (без подписи) текущие цены спота с Bybit."""
+    prices = {}
+    for coin in PRICE_SYMBOLS:
+        try:
+            result = bybit_get("/v5/market/tickers", {"category": "spot", "symbol": f"{coin}USDT"})
+            lst = result.get("list", [])
+            if lst:
+                prices[coin] = float(lst[0]["lastPrice"])
+        except Exception:  # noqa: BLE001
+            log.exception("price fetch failed for %s", coin)
+    return prices
+
+
 # ---------- Google Sheets ----------
 
 def get_sheet_client():
@@ -169,11 +186,28 @@ def sync_orders(sh):
     log.info("orders synced: %d new rows", len(new_rows))
 
 
+def sync_prices(sh):
+    prices = get_public_prices()
+    if not prices:
+        return
+    ws = sh.worksheet("Факт цены")
+    coin_col = ws.col_values(1)
+    now = datetime.now(timezone.utc).strftime("%d.%m.%Y")
+    updates = []
+    for i, coin in enumerate(coin_col, start=1):
+        if coin in prices:
+            updates.append({"range": f"B{i}:C{i}", "values": [[prices[coin], now]]})
+    if updates:
+        ws.batch_update(updates, value_input_option="USER_ENTERED")
+    log.info("prices synced: %d coins", len(updates))
+
+
 def sync():
     gc = get_sheet_client()
     sh = gc.open_by_key(SPREADSHEET_ID)
     sync_balances(sh)
     sync_orders(sh)
+    sync_prices(sh)
 
 
 # ---------- Web server / scheduler ----------
