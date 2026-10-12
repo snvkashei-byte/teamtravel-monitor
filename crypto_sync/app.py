@@ -102,7 +102,7 @@ def get_recent_orders(category="spot", limit=50):
     return result.get("list", [])
 
 
-PRICE_SYMBOLS = ["BTC", "SOL", "ATOM", "ETH", "ARB", "GRAM"]
+PRICE_SYMBOLS = ["BTC", "SOL", "ATOM", "ETH", "ARB", "GRAM", "APT"]
 
 
 def get_public_prices():
