@@ -23,6 +23,13 @@ SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "1tca0CIl2takJTUNwTIAR74fXbF1B
 INTERVAL_MIN = int(os.environ.get("SYNC_INTERVAL_MINUTES", "60"))
 SHEETS_SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
+# T-Invest API (Т-Банк Инвестиции) — живая цена акции YDEX (Яндекс, MOEX).
+# Токен выпускается в личном кабинете: tbank.ru/invest/settings/api/ (права "только чтение").
+TINVEST_API_TOKEN = os.environ.get("TINVEST_API_TOKEN", "")
+TINVEST_BASE_URL = "https://invest-public-api.tbank.ru/rest"
+TINVEST_TICKER = "YDEX"
+TINVEST_CLASS_CODE = "TQBR"  # основной режим торгов акциями на MOEX
+
 app = Flask(__name__)
 
 
@@ -101,6 +108,66 @@ def get_public_prices():
         except Exception:  # noqa: BLE001
             log.exception("price fetch failed for %s", coin)
     return prices
+
+
+# ---------- T-Invest API (YDEX) ----------
+
+_ydex_figi_cache = None
+
+
+def tinvest_post(method, payload):
+    url = f"{TINVEST_BASE_URL}/{method}"
+    headers = {
+        "Authorization": f"Bearer {TINVEST_API_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    resp = requests.post(url, headers=headers, json=payload, timeout=20)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _quotation_to_float(q):
+    """T-Invest API возвращает денежные величины как {units, nano}."""
+    if not q:
+        return None
+    units = int(q.get("units", 0) or 0)
+    nano = int(q.get("nano", 0) or 0)
+    return units + nano / 1e9
+
+
+def get_ydex_figi():
+    """FIGI акции YDEX на MOEX. Кешируется в памяти процесса — не меняется между перезапусками редко."""
+    global _ydex_figi_cache
+    if _ydex_figi_cache:
+        return _ydex_figi_cache
+    data = tinvest_post(
+        "tinkoff.public.invest.api.contract.v1.InstrumentsService/ShareBy",
+        {"idType": "INSTRUMENT_ID_TYPE_TICKER", "classCode": TINVEST_CLASS_CODE, "id": TINVEST_TICKER},
+    )
+    figi = data.get("instrument", {}).get("figi")
+    if not figi:
+        raise RuntimeError(f"T-Invest: не удалось найти FIGI для {TINVEST_TICKER}: {data}")
+    _ydex_figi_cache = figi
+    return figi
+
+
+def get_ydex_price():
+    """Текущая (последняя) цена акции YDEX в рублях, или None при ошибке/отсутствии токена."""
+    if not TINVEST_API_TOKEN:
+        return None
+    try:
+        figi = get_ydex_figi()
+        data = tinvest_post(
+            "tinkoff.public.invest.api.contract.v1.MarketDataService/GetLastPrices",
+            {"instrumentId": [figi]},
+        )
+        prices = data.get("lastPrices", [])
+        if not prices:
+            return None
+        return _quotation_to_float(prices[0].get("price"))
+    except Exception:  # noqa: BLE001
+        log.exception("ydex price fetch failed")
+        return None
 
 
 # ---------- Google Sheets ----------
@@ -188,18 +255,28 @@ def sync_orders(sh):
 
 def sync_prices(sh):
     prices = get_public_prices()
+    ydex_price = get_ydex_price()
+    if ydex_price is not None:
+        prices["YDEX"] = ydex_price
     if not prices:
         return
     ws = sh.worksheet("Факт цены")
     coin_col = ws.col_values(1)
     now = datetime.now(timezone.utc).strftime("%d.%m.%Y")
     updates = []
+    seen = set()
     for i, coin in enumerate(coin_col, start=1):
         if coin in prices:
             updates.append({"range": f"B{i}:C{i}", "values": [[prices[coin], now]]})
+            seen.add(coin)
     if updates:
         ws.batch_update(updates, value_input_option="USER_ENTERED")
-    log.info("prices synced: %d coins", len(updates))
+    # Монеты/тикеры, которых ещё нет в листе (например, YDEX при первом запуске) — дописываем новыми строками.
+    missing = [coin for coin in prices if coin not in seen]
+    if missing:
+        new_rows = [[coin, prices[coin], now, ""] for coin in missing]
+        ws.append_rows(new_rows, value_input_option="USER_ENTERED")
+    log.info("prices synced: %d updated, %d new", len(updates), len(missing))
 
 
 def sync():
