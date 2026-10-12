@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlencode
 
 import requests
+import certifi
 from flask import Flask
 import gspread
 from google.oauth2.service_account import Credentials
@@ -115,13 +116,55 @@ def get_public_prices():
 _ydex_figi_cache = None
 
 
+_RUSSIAN_CA_URLS = [
+    "https://gu-st.ru/content/lending/russian_trusted_root_ca_pem.crt",
+    "https://gu-st.ru/content/lending/russian_trusted_sub_ca_pem.crt",
+]
+_COMBINED_CA_BUNDLE_PATH = "/tmp/combined_ca_bundle.pem"
+_ca_bundle_cache = None
+
+
+def get_ca_bundle_path():
+    """
+    invest-public-api.tbank.ru отдаёт цепочку, подписанную Russian Trusted Root CA
+    (Минцифры России) — этого корня нет в стандартном certifi-бандле, поэтому обычная
+    проверка TLS падает с SSLCertVerificationError. Один раз при старте скачиваем
+    официальные сертификаты Минцифры (сам домен gu-st.ru имеет нормальный публичный
+    сертификат, поэтому запрос идёт с проверкой) и приклеиваем их к certifi-бандлу.
+    Результат кешируется на диске и в памяти процесса.
+    """
+    global _ca_bundle_cache
+    if _ca_bundle_cache and os.path.exists(_ca_bundle_cache):
+        return _ca_bundle_cache
+    if os.path.exists(_COMBINED_CA_BUNDLE_PATH):
+        _ca_bundle_cache = _COMBINED_CA_BUNDLE_PATH
+        return _ca_bundle_cache
+
+    with open(certifi.where(), "r", encoding="ascii") as f:
+        combined = f.read()
+
+    for url in _RUSSIAN_CA_URLS:
+        resp = requests.get(url, timeout=20)
+        resp.raise_for_status()
+        cert_text = resp.content.decode("ascii")
+        if "BEGIN CERTIFICATE" not in cert_text:
+            raise RuntimeError(f"Неожиданный ответ при скачивании CA-сертификата с {url}")
+        combined += "\n" + cert_text
+
+    with open(_COMBINED_CA_BUNDLE_PATH, "w", encoding="ascii") as f:
+        f.write(combined)
+    log.info("Russian Trusted CA bundle скачан и сохранён в %s", _COMBINED_CA_BUNDLE_PATH)
+    _ca_bundle_cache = _COMBINED_CA_BUNDLE_PATH
+    return _ca_bundle_cache
+
+
 def tinvest_post(method, payload):
     url = f"{TINVEST_BASE_URL}/{method}"
     headers = {
         "Authorization": f"Bearer {TINVEST_API_TOKEN}",
         "Content-Type": "application/json",
     }
-    resp = requests.post(url, headers=headers, json=payload, timeout=20)
+    resp = requests.post(url, headers=headers, json=payload, timeout=20, verify=get_ca_bundle_path())
     resp.raise_for_status()
     return resp.json()
 
