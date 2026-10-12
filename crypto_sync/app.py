@@ -304,6 +304,32 @@ def manual_sync():
         return f"Ошибка: {e}", 500
 
 
+@app.route("/debug/ydex")
+def debug_ydex():
+    """Диагностика: показывает точную причину, если YDEX-цена не получена."""
+    info = {"token_set": bool(TINVEST_API_TOKEN)}
+    if not TINVEST_API_TOKEN:
+        return json.dumps(info, ensure_ascii=False), 200
+    try:
+        figi = get_ydex_figi()
+        info["figi"] = figi
+    except Exception as e:  # noqa: BLE001
+        info["figi_error"] = f"{type(e).__name__}: {e}"
+        return json.dumps(info, ensure_ascii=False), 200
+    try:
+        data = tinvest_post(
+            "tinkoff.public.invest.api.contract.v1.MarketDataService/GetLastPrices",
+            {"instrumentId": [figi]},
+        )
+        info["raw_response"] = data
+        prices = data.get("lastPrices", [])
+        if prices:
+            info["price"] = _quotation_to_float(prices[0].get("price"))
+    except Exception as e:  # noqa: BLE001
+        info["price_error"] = f"{type(e).__name__}: {e}"
+    return json.dumps(info, ensure_ascii=False), 200
+
+
 def loop():
     while True:
         try:
