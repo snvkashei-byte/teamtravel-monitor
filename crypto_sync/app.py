@@ -34,6 +34,14 @@ TINVEST_CLASS_CODE = "TQBR"  # основной режим торгов акци
 app = Flask(__name__)
 
 
+@app.errorhandler(Exception)
+def handle_any_error(e):
+    import traceback
+
+    log.exception("unhandled error")
+    return f"Ошибка: {type(e).__name__}: {e}\n\n{traceback.format_exc()}", 500
+
+
 # ---------- Bybit API ----------
 
 def _sign(timestamp, recv_window, payload_str):
@@ -140,18 +148,18 @@ def get_ca_bundle_path():
         _ca_bundle_cache = _COMBINED_CA_BUNDLE_PATH
         return _ca_bundle_cache
 
-    with open(certifi.where(), "r", encoding="ascii") as f:
+    with open(certifi.where(), "r", encoding="utf-8") as f:
         combined = f.read()
 
     for url in _RUSSIAN_CA_URLS:
         resp = requests.get(url, timeout=20)
         resp.raise_for_status()
-        cert_text = resp.content.decode("ascii")
+        cert_text = resp.content.decode("utf-8", errors="replace")
         if "BEGIN CERTIFICATE" not in cert_text:
             raise RuntimeError(f"Неожиданный ответ при скачивании CA-сертификата с {url}")
         combined += "\n" + cert_text
 
-    with open(_COMBINED_CA_BUNDLE_PATH, "w", encoding="ascii") as f:
+    with open(_COMBINED_CA_BUNDLE_PATH, "w", encoding="utf-8") as f:
         f.write(combined)
     log.info("Russian Trusted CA bundle скачан и сохранён в %s", _COMBINED_CA_BUNDLE_PATH)
     _ca_bundle_cache = _COMBINED_CA_BUNDLE_PATH
@@ -350,27 +358,43 @@ def manual_sync():
 @app.route("/debug/ydex")
 def debug_ydex():
     """Диагностика: показывает точную причину, если YDEX-цена не получена."""
+    import traceback
+
     info = {"token_set": bool(TINVEST_API_TOKEN)}
-    if not TINVEST_API_TOKEN:
-        return json.dumps(info, ensure_ascii=False), 200
     try:
-        figi = get_ydex_figi()
-        info["figi"] = figi
-    except Exception as e:  # noqa: BLE001
-        info["figi_error"] = f"{type(e).__name__}: {e}"
+        if not TINVEST_API_TOKEN:
+            return json.dumps(info, ensure_ascii=False), 200
+        try:
+            info["ca_bundle_path"] = get_ca_bundle_path()
+        except Exception as e:  # noqa: BLE001
+            info["ca_bundle_error"] = f"{type(e).__name__}: {e}"
+            info["ca_bundle_traceback"] = traceback.format_exc()
+            return json.dumps(info, ensure_ascii=False), 200
+        try:
+            figi = get_ydex_figi()
+            info["figi"] = figi
+        except Exception as e:  # noqa: BLE001
+            info["figi_error"] = f"{type(e).__name__}: {e}"
+            info["figi_traceback"] = traceback.format_exc()
+            return json.dumps(info, ensure_ascii=False), 200
+        try:
+            data = tinvest_post(
+                "tinkoff.public.invest.api.contract.v1.MarketDataService/GetLastPrices",
+                {"instrumentId": [figi]},
+            )
+            info["raw_response"] = data
+            prices = data.get("lastPrices", [])
+            if prices:
+                info["price"] = _quotation_to_float(prices[0].get("price"))
+        except Exception as e:  # noqa: BLE001
+            info["price_error"] = f"{type(e).__name__}: {e}"
+            info["price_traceback"] = traceback.format_exc()
         return json.dumps(info, ensure_ascii=False), 200
-    try:
-        data = tinvest_post(
-            "tinkoff.public.invest.api.contract.v1.MarketDataService/GetLastPrices",
-            {"instrumentId": [figi]},
-        )
-        info["raw_response"] = data
-        prices = data.get("lastPrices", [])
-        if prices:
-            info["price"] = _quotation_to_float(prices[0].get("price"))
     except Exception as e:  # noqa: BLE001
-        info["price_error"] = f"{type(e).__name__}: {e}"
-    return json.dumps(info, ensure_ascii=False), 200
+        return json.dumps(
+            {"unexpected_error": f"{type(e).__name__}: {e}", "traceback": traceback.format_exc()},
+            ensure_ascii=False,
+        ), 200
 
 
 def loop():
