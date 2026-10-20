@@ -10,6 +10,10 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 ADMIN_CHAT_ID = int(os.environ.get("ADMIN_CHAT_ID", "0"))
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")  # должен совпадать с secret_token в setWebhook
 
+# Куда реально доставляются уведомления: тема "Вопросы менеджеров" группы Cloud
+GROUP_CHAT_ID = int(os.environ.get("GROUP_CHAT_ID", "-1004451366292"))
+GROUP_TOPIC_ID = int(os.environ.get("GROUP_TOPIC_ID", "4"))
+
 CHATS = {
     -1003500764364: "Кыргызстан",
     -1003638029318: "Владивосток",
@@ -80,7 +84,12 @@ def webhook():
             f"👤 {sender}\n"
             f"💬 {text[:300]}\n\n"
             f"⏰ Требуется ответ")
-    send_tg("sendMessage", {"chat_id": ADMIN_CHAT_ID, "text": note, "parse_mode": "HTML"})
+    send_tg("sendMessage", {
+        "chat_id": GROUP_CHAT_ID,
+        "message_thread_id": GROUP_TOPIC_ID,
+        "text": note,
+        "parse_mode": "HTML",
+    })
     return "OK"
 
 @app.route("/")
