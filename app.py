@@ -9,6 +9,17 @@ log = logging.getLogger("teamtravel-monitor")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 ADMIN_CHAT_ID = int(os.environ.get("ADMIN_CHAT_ID", "0"))
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")  # должен совпадать с secret_token в setWebhook
+SEND_SECRET = os.environ.get("SEND_SECRET", "")  # авторизация для /send-summary
+
+# Группа Cloud, куда доставляются плановые сводки
+GROUP_CHAT_ID = int(os.environ.get("GROUP_CHAT_ID", "-1004451366292"))
+TOPIC_IDS = {
+    "mail": int(os.environ.get("TOPIC_MAIL", "3")),
+    "managers": int(os.environ.get("TOPIC_MANAGERS", "4")),
+    "diadok": int(os.environ.get("TOPIC_DIADOK", "16")),
+    "replies": int(os.environ.get("TOPIC_REPLIES", "23")),
+    "crypto": int(os.environ.get("TOPIC_CRYPTO", "46")),
+}
 
 # Куда реально доставляются уведомления: тема "Вопросы менеджеров" группы Cloud
 GROUP_CHAT_ID = int(os.environ.get("GROUP_CHAT_ID", "-1004451366292"))
@@ -91,6 +102,32 @@ def webhook():
         "parse_mode": "HTML",
     })
     return "OK"
+
+@app.route("/send-summary", methods=["POST"])
+def send_summary():
+    # Разгружает сценарий Claude от необходимости читать токен бота в
+    # неинтерактивных сессиях — пересылает текст в фиксированную тему группы,
+    # используя токен, который хранится только здесь (env BOT_TOKEN).
+    if SEND_SECRET:
+        if request.headers.get("X-Send-Secret", "") != SEND_SECRET:
+            log.warning("send-summary called with invalid or missing secret")
+            abort(403)
+
+    data = request.get_json(silent=True) or {}
+    topic_key = data.get("topic", "")
+    text = data.get("text", "")
+
+    if topic_key not in TOPIC_IDS:
+        return {"ok": False, "error": "unknown topic"}, 400
+    if not isinstance(text, str) or not text.strip() or len(text) > 4000:
+        return {"ok": False, "error": "invalid text"}, 400
+
+    result = send_tg("sendMessage", {
+        "chat_id": GROUP_CHAT_ID,
+        "message_thread_id": TOPIC_IDS[topic_key],
+        "text": text,
+    })
+    return {"ok": bool(result.get("ok")), "telegram": result}, (200 if result.get("ok") else 502)
 
 @app.route("/")
 def index():
