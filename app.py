@@ -21,10 +21,6 @@ TOPIC_IDS = {
     "crypto": int(os.environ.get("TOPIC_CRYPTO", "46")),
 }
 
-# Куда реально доставляются уведомления: тема "Вопросы менеджеров" группы Cloud
-GROUP_CHAT_ID = int(os.environ.get("GROUP_CHAT_ID", "-1004451366292"))
-GROUP_TOPIC_ID = int(os.environ.get("GROUP_TOPIC_ID", "4"))
-
 CHATS = {
     -1003500764364: "Кыргызстан",
     -1003638029318: "Владивосток",
@@ -97,7 +93,7 @@ def webhook():
             f"⏰ Требуется ответ")
     send_tg("sendMessage", {
         "chat_id": GROUP_CHAT_ID,
-        "message_thread_id": GROUP_TOPIC_ID,
+        "message_thread_id": TOPIC_IDS["managers"],
         "text": note,
         "parse_mode": "HTML",
     })
