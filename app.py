@@ -99,19 +99,25 @@ def webhook():
     })
     return "OK"
 
-@app.route("/send-summary", methods=["POST"])
+@app.route("/send-summary", methods=["POST", "GET"])
 def send_summary():
     # Разгружает сценарий Claude от необходимости читать токен бота в
     # неинтерактивных сессиях — пересылает текст в фиксированную тему группы,
     # используя токен, который хранится только здесь (env BOT_TOKEN).
+    # GET поддерживается только для ручной проверки через query-параметры.
     if SEND_SECRET:
-        if request.headers.get("X-Send-Secret", "") != SEND_SECRET:
+        secret = request.headers.get("X-Send-Secret", "") or request.args.get("secret", "")
+        if secret != SEND_SECRET:
             log.warning("send-summary called with invalid or missing secret")
             abort(403)
 
-    data = request.get_json(silent=True) or {}
-    topic_key = data.get("topic", "")
-    text = data.get("text", "")
+    if request.method == "GET":
+        topic_key = request.args.get("topic", "")
+        text = request.args.get("text", "")
+    else:
+        data = request.get_json(silent=True) or {}
+        topic_key = data.get("topic", "")
+        text = data.get("text", "")
 
     if topic_key not in TOPIC_IDS:
         return {"ok": False, "error": "unknown topic"}, 400
